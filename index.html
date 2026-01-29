@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Whoop 特典会模拟器 (成员指定版)</title>
+    <style>
+        :root { --whoop-red: #ff4757; --whoop-dark: #1e1e1e; }
+        body { font-family: -apple-system, system-ui, sans-serif; background: #121212; color: #eee; margin: 0; display: flex; justify-content: center; }
+        .app { width: 100%; max-width: 480px; background: var(--whoop-dark); min-height: 100vh; box-shadow: 0 0 20px rgba(0,0,0,0.5); position: relative; }
+        .header { padding: 40px 20px; text-align: center; background: linear-gradient(180deg, #2c2c2c 0%, var(--whoop-dark) 100%); }
+        .header h1 { margin: 0; font-size: 24px; letter-spacing: 1px; color: white; }
+        .section { padding: 20px; border-bottom: 1px solid #333; }
+        label { display: block; font-size: 13px; color: #888; margin-bottom: 12px; text-transform: uppercase; }
+        
+        /* 成员选择 */
+        .member-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .m-btn { background: #2a2a2a; border: 1px solid #444; color: #ccc; padding: 12px 5px; border-radius: 8px; font-size: 12px; cursor: pointer; transition: 0.2s; }
+        .m-btn.active { background: var(--whoop-red); border-color: var(--whoop-red); color: white; font-weight: bold; }
+        
+        /* 输入框 */
+        input { width: 100%; background: #2a2a2a; border: 1px solid #444; padding: 15px; border-radius: 10px; color: white; font-size: 18px; box-sizing: border-box; }
+        
+        .pay-trigger { width: 100%; background: white; color: black; border: none; padding: 18px; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 20px; }
+        
+        /* 苹果支付模拟层 */
+        #apple-pay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 1000; align-items: flex-end; }
+        .pay-sheet { background: white; color: black; width: 100%; border-top-left-radius: 20px; border-top-right-radius: 20px; padding: 30px 20px; box-sizing: border-box; animation: slideUp 0.3s ease-out; }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .pay-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
+        .face-id { margin: 30px auto; width: 60px; height: 60px; border: 2px solid #007aff; border-radius: 15px; display: flex; align-items: center; justify-content: center; color: #007aff; font-weight: bold; cursor: pointer; }
+
+        /* 结果展示 */
+        #result-view { display: none; padding: 20px; }
+        .win-box { background: #2a2a2a; border-radius: 12px; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid var(--whoop-red); }
+        .lose-box { background: #1a1a1a; border-radius: 12px; padding: 12px; margin-bottom: 8px; color: #555; font-size: 14px; border: 1px solid #333; }
+        .summary { background: #000; padding: 20px; border-radius: 15px; margin-top: 20px; border: 1px solid #222; }
+    </style>
+</head>
+<body>
+
+<div class="app">
+    <div id="setup-view">
+        <div class="header">
+            <h1>Whoop 特典抽选</h1>
+            <p style="color: #666; font-size: 13px;">THE BOYZ JAPAN EVENT</p>
+        </div>
+
+        <div class="section">
+            <label>指定一名成员</label>
+            <div class="member-grid" id="memberGrid"></div>
+        </div>
+
+        <div class="section">
+            <label>购买张数 (¥3,300/张)</label>
+            <input type="number" id="qty" value="10" min="1">
+            <button class="pay-trigger" onclick="openPay()">确认支付</button>
+        </div>
+    </div>
+
+    <div id="result-view">
+        <h2 style="text-align:center">抽选结果反馈</h2>
+        <div id="drawContainer"></div>
+        <div class="summary" id="totalStats"></div>
+        <button class="pay-trigger" onclick="location.reload()">重新开始</button>
+        <button class="m-btn" style="width:100%; margin-top:10px;" onclick="goBack()">继续购买</button>
+    </div>
+</div>
+
+<div id="apple-pay" onclick="closePay()">
+    <div class="pay-sheet" onclick="event.stopPropagation()">
+        <div style="text-align:center; font-weight:bold; font-size:18px;"> Pay</div>
+        <div class="pay-row"><span>商户</span><span>Whoop JP (Global)</span></div>
+        <div class="pay-row"><span>购买</span><span id="payDesc"></span></div>
+        <div class="pay-row" style="border:none"><span>总计</span><span style="font-size:24px; font-weight:bold;" id="payAmt"></span></div>
+        <div class="face-id" onclick="runLottery()">确认</div>
+        <div style="text-align:center; font-size:12px; color:#888;">点击“确认”模拟面容识别支付</div>
+    </div>
+</div>
+
+<script>
+    const members = ["JACOB", "YOUNGHOON", "HYUNJAE", "JUYEON", "KEVIN", "NEW", "Q", "SUNWOO", "ERIC"];
+    const prizePool = [
+        { name: "双人合影", prob: 0.015 }, 
+        { name: "签名会", prob: 0.04 }, 
+        { name: "手渡会", prob: 0.08 }, 
+        { name: "拍手会", prob: 0.15 }
+    ];
+
+    let selectedMember = "";
+    let totalMoney = 0;
+    let totalWins = 0;
+
+    // 初始化成员按钮
+    const grid = document.getElementById('memberGrid');
+    members.forEach(m => {
+        const b = document.createElement('button');
+        b.className = 'm-btn';
+        b.innerText = m;
+        b.onclick = () => {
+            document.querySelectorAll('.m-btn').forEach(btn => btn.classList.remove('active'));
+            b.classList.add('active');
+            selectedMember = m;
+        };
+        grid.appendChild(b);
+    });
+
+    function openPay() {
+        if (!selectedMember) return alert("请先选择成员！");
+        const qty = document.getElementById('qty').value;
+        document.getElementById('payDesc').innerText = `${selectedMember} 抽选券 x ${qty}`;
+        document.getElementById('payAmt').innerText = `¥${(qty * 3300).toLocaleString()}`;
+        document.getElementById('apple-pay').style.display = 'flex';
+    }
+
+    function closePay() { document.getElementById('apple-pay').style.display = 'none'; }
+    function goBack() { document.getElementById('setup-view').style.display = 'block'; document.getElementById('result-view').style.display = 'none'; }
+
+    function runLottery() {
+        closePay();
+        const qty = parseInt(document.getElementById('qty').value);
+        totalMoney += qty * 3300;
+        
+        document.getElementById('setup-view').style.display = 'none';
+        document.getElementById('result-view').style.display = 'block';
+        
+        const container = document.getElementById('drawContainer');
+        container.innerHTML = "";
+        let wins = 0;
+
+        for (let i = 1; i <= qty; i++) {
+            let rand = Math.random();
+            let wonPrize = null;
+            let acc = 0;
+            
+            for (let p of prizePool) {
+                if (rand < p.prob) {
+                    wonPrize = p;
+                    break;
+                }
+            }
+
+            if (wonPrize) {
+                wins++; totalWins++;
+                container.innerHTML += `<div class="win-box">
+                    <span>${selectedMember}</span>
+                    <span style="font-weight:bold">${wonPrize.name} 🎉</span>
+                </div>`;
+            } else if (qty <= 20) {
+                container.innerHTML += `<div class="lose-box">第 ${i} 张：未中选</div>`;
+            }
+        }
+
+        if (qty > 20) {
+            container.innerHTML += `<div style="text-align:center; padding:10px; color:#666;">...其余未中选结果已略过...</div>`;
+        }
+
+        document.getElementById('totalStats').innerHTML = `
+            <div style="color:var(--whoop-red); margin-bottom:10px;">本次中奖：${wins} 个项目</div>
+            <div style="font-size:13px; color:#888;">
+                累计购买金额：<span style="color:white">¥${totalMoney.toLocaleString()}</span><br>
+                累计获得数量：<span style="color:white">${totalWins}</span>
+            </div>
+        `;
+    }
+</script>
+</body>
+</html>
